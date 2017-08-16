@@ -30,6 +30,11 @@ enum VideoQuality: String {
     case SD = "sd"
 }
 
+enum Language: String {
+    case EN = "eng"
+    case CN = "zho"
+}
+
 //http://stackoverflow.com/a/30743763
 
 class Reachability {
@@ -139,7 +144,7 @@ class DownloadSessionManager : NSObject, URLSessionDownloadDelegate {
         }
     }
     
-  func show(progress: Int, barWidth: Int, speedInK: Int) {
+    func show(progress: Int, barWidth: Int, speedInK: Int) {
         print("\r[", terminator: "")
         let pos = Int(Double(barWidth*progress)/100.0)
         for i in 0...barWidth {
@@ -159,7 +164,7 @@ class DownloadSessionManager : NSObject, URLSessionDownloadDelegate {
         print("] \(progress)% \(speedInK)KB/s", terminator:"")
         fflush(__stdoutp)
     }
-
+    
     var taskStartedAt : Date?
     //MARK : URLSessionDownloadDelegate stuff
     func urlSession(_: URLSession,
@@ -167,9 +172,9 @@ class DownloadSessionManager : NSObject, URLSessionDownloadDelegate {
                     didWriteData bytesWritten: Int64,
                     totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
-      let now = Date()
-      let timeDownloaded = now.timeIntervalSince(taskStartedAt!)
-      let kbs = Int( floor( Float(totalBytesWritten) / 1024.0 / Float(timeDownloaded) ) )
+        let now = Date()
+        let timeDownloaded = now.timeIntervalSince(taskStartedAt!)
+        let kbs = Int( floor( Float(totalBytesWritten) / 1024.0 / Float(timeDownloaded) ) )
         show(progress: Int(Double(totalBytesWritten)/Double(totalBytesExpectedToWrite)*100.0), barWidth: 70, speedInK: kbs)
     }
     
@@ -259,8 +264,8 @@ class wwdcVideosController {
         
         return pdfResourceURL
     }
-
-
+    
+    
     class func getTitle(fromHTML: String) -> (String) {
         let pat = "<h1>(.*)</h1>"
         let regex = try! NSRegularExpression(pattern: pat, options: [])
@@ -272,10 +277,24 @@ class wwdcVideosController {
                 fromHTML.index(fromHTML.startIndex, offsetBy: range.location+range.length)
             title = fromHTML.substring(with: r)
         }
-
+        
         return title
     }
-
+    
+    class func getSubTitle(fromHTML: String, language: Language) -> (String, String) {
+        let videoURL = getHDorSDdURLs(fromHTML: fromHTML, format: format)
+        var subTitle = ""
+        var fileName = ""
+        if !videoURL.isEmpty {
+            var subs = videoURL.components(separatedBy: "/")
+            fileName = subs.removeLast()
+            fileName = fileName.replacingOccurrences(of: ".mp4", with: "_\(language.rawValue).srt")
+            subTitle = subs.joined(separator: "/")
+            subTitle = subTitle + "/subtitles/\(language.rawValue)/fileSequence0.webvtt"
+        }
+        return (subTitle, fileName)
+    }
+    
     class func getSampleCodeURL(fromHTML: String) -> [String] {
         let pat = "\\b.*(href=\".*/content/samplecode/.*\")\\b"
         let regex = try! NSRegularExpression(pattern: pat, options: [])
@@ -288,10 +307,10 @@ class wwdcVideosController {
             var path = fromHTML.substring(with: r)
             path = path.replacingOccurrences(of: "href=\"", with: "https://developer.apple.com")
             path = path.replacingOccurrences(of: "\" target=\"", with: "/")
-
+            
             sampleURLPaths.append(path)
         }
-
+        
         var sampleArchivePaths : [String] = []
         for urlPath in sampleURLPaths {
             let jsonText = getStringContent(fromURL: urlPath + "book.json")
@@ -304,10 +323,10 @@ class wwdcVideosController {
                 }
             }
         }
-
+        
         return sampleArchivePaths
     }
-
+    
     class func getStringContent(fromURL: String) -> (String) {
         /* Configure session, choose between:
          * defaultSessionConfiguration
@@ -372,8 +391,11 @@ class wwdcVideosController {
         return sessionsListArray
     }
     
-    class func downloadFile(urlString: String, forSession sessionIdentifier: String = "???") {
-        let fileName = URL(fileURLWithPath: urlString).lastPathComponent
+    class func downloadFile(urlString: String, forSession sessionIdentifier: String = "???", defaultFileName: String? = nil) {
+        var fileName = URL(fileURLWithPath: urlString).lastPathComponent
+        if defaultFileName != nil {
+            fileName = defaultFileName!
+        }
         
         guard !FileManager.default.fileExists(atPath: "./" + fileName) else {
             print("\(fileName): already exists, nothing to do!")
@@ -393,15 +415,17 @@ class wwdcVideosController {
 
 func showHelpAndExit() {
     print("wwdc2017 - a simple swifty video sessions bulk download.\nJust Get'em all!")
-    print("usage: wwdc2017.swift [--hd] [--sd] [--pdf] [--pdf-only] [--sessions] [--sample] [--list-only] [--help]\n")
+    print("usage: wwdc2017.swift [--hd] [--sd] [--pdf] [--pdf-only] [--sessions] [--sample] [--list-only] [--help] [--subtitle]\n")
     exit(0)
 }
 
 /* Managing options */
 var format = VideoQuality.HD
+var language = Language.EN
 var shouldDownloadPDFResource = false
 var shouldDownloadVideoResource = true
 var shouldDownloadSampleCodeResource = false
+var shouldDownloadSubtitleResource = false
 
 var gettingSessions = false
 var sessionsSet:Set<String> = Set()
@@ -424,6 +448,12 @@ for argument in arguments {
         format = .SD
         gettingSessions = false
         
+    case "--en":
+        language = .EN
+        
+    case "--cn":
+        language = .CN
+        
     case "--pdf":
         shouldDownloadPDFResource = true
         gettingSessions = false
@@ -432,19 +462,24 @@ for argument in arguments {
         shouldDownloadPDFResource = true
         shouldDownloadVideoResource = false
         gettingSessions = false
-
+        
     case "--sample":
         shouldDownloadSampleCodeResource = true
         gettingSessions = false
-
+        
+    case "--subtitle":
+        shouldDownloadSubtitleResource = true
+        shouldDownloadVideoResource = false
+        
     case "--sessions", "-s":
         gettingSessions = true
         break
-    
+        
     case "--list-only", "-l":
         shouldDownloadVideoResource = false
         break;
-
+        
+        
     case _ where Int(argument) != nil:
         if(!gettingSessions) {
             fallthrough
@@ -498,21 +533,24 @@ sessionsListArray.sort(by: sortFunc)
 
 for (_, value) in sessionsListArray.enumerated() {
     let htmlText = wwdcVideosController.getStringContent(fromURL: "https://developer.apple.com/videos/play/wwdc2017/" + value + "/")
-
+    
     let title = wwdcVideosController.getTitle(fromHTML: htmlText)
     print("\n[Session \(value)] : \(title)")
-
+    let videoURLString2 = wwdcVideosController.getHDorSDdURLs(fromHTML: htmlText, format: format)
+    print("\n[url]: \(videoURLString2)")
+    
+    
     if shouldDownloadVideoResource {
         let videoURLString = wwdcVideosController.getHDorSDdURLs(fromHTML: htmlText, format: format)
         if videoURLString.isEmpty {
             print("Video : Video is not yet available !!!")
         } else {
             print("Video : \(videoURLString)")
-
+            
             wwdcVideosController.downloadFile(urlString: videoURLString, forSession: value)
         }
     }
-
+    
     if shouldDownloadPDFResource {
         let pdfResourceURLString = wwdcVideosController.getPDFResourceURL(fromHTML: htmlText)
         if pdfResourceURLString.isEmpty {
@@ -522,7 +560,7 @@ for (_, value) in sessionsListArray.enumerated() {
             wwdcVideosController.downloadFile(urlString: pdfResourceURLString, forSession: value)
         }
     }
-
+    
     if shouldDownloadSampleCodeResource {
         let sampleURLPaths = wwdcVideosController.getSampleCodeURL(fromHTML: htmlText)
         if sampleURLPaths.isEmpty {
@@ -533,6 +571,16 @@ for (_, value) in sessionsListArray.enumerated() {
                 print("\(path)")
                 wwdcVideosController.downloadFile(urlString: path, forSession: value)
             }
+        }
+    }
+    
+    if shouldDownloadSubtitleResource {
+        let subtitleURLPaths = wwdcVideosController.getSubTitle(fromHTML: htmlText, language: language)
+        if subtitleURLPaths.0.isEmpty {
+            print("subtitle: subtitleURLs not yet available !!!")
+        } else {
+            print("value : \(value) subtitleURLPaths: \(subtitleURLPaths)")
+            wwdcVideosController.downloadFile(urlString: subtitleURLPaths.0, forSession: value, defaultFileName: subtitleURLPaths.1)
         }
     }
 }

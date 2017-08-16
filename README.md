@@ -34,6 +34,9 @@ Examples:
 			
 		- Download all SD videos & the slides PDF for wwdc 2017:
 			./wwdc2017.swift --sd --pdf
+			
+		- Download all SD subtitles for wwdc 2017:
+			./wwdc2017.swift --sd --subtitle
 		
 		- Download only all PDF for wwdc 2017:
 			./wwdc2017.swift --pdf-only
